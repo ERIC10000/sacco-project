@@ -2,8 +2,12 @@ import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Bell, Search, ChevronDown, User, Settings, LogOut, HelpCircle,
-  CreditCard, PiggyBank, AlertCircle, CheckCircle, X,
+  CreditCard, PiggyBank, AlertCircle, CheckCircle, X, Menu,
 } from 'lucide-react'
+
+interface HeaderProps {
+  onMenuClick?: () => void
+}
 
 const searchResults = [
   { type: 'member',       title: 'John Kamau',      subtitle: 'Membership #M-1024',  icon: User,        path: '/members' },
@@ -19,7 +23,7 @@ const notifications = [
   { id: 4, type: 'info',    icon: User,        title: '12 new members joined',        desc: 'View new registrations',       time: 'Yesterday', unread: false },
 ]
 
-export default function Header() {
+export default function Header({ onMenuClick }: HeaderProps = {}) {
   const navigate = useNavigate()
   const user = { username: 'Admin', role: 'Administrator', initials: 'AD', email: 'admin@saccoflow.co.ke' }
 
@@ -65,7 +69,16 @@ export default function Header() {
   }
 
   return (
-    <header className="h-16 bg-white border-b border-slate-100 flex items-center px-6 gap-4 sticky top-0 z-30">
+    <header className="h-16 bg-white border-b border-slate-100 flex items-center px-4 sm:px-6 gap-2 sm:gap-4 sticky top-0 z-30">
+
+      {/* Mobile hamburger — only visible below lg */}
+      <button
+        onClick={onMenuClick}
+        className="lg:hidden p-2 -ml-1 rounded-lg text-slate-700 hover:bg-slate-100 transition-colors flex-shrink-0"
+        aria-label="Open menu"
+      >
+        <Menu size={22} />
+      </button>
 
       {/* Greeting */}
       <div className="flex-1 min-w-0">

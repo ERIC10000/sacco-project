@@ -27,32 +27,48 @@ export default function Landing() {
 
       {/* ═══════════ NAV ═══════════ */}
       <header className="sticky top-0 z-50 bg-white/85 backdrop-blur-lg border-b border-slate-100">
-        <nav className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow-lg shadow-indigo-600/30">
-              <TrendingUp size={22} className="text-white" />
-            </div>
-            <span className="font-extrabold text-slate-900 text-2xl tracking-tight">SaccoFlow</span>
-          </div>
+        <nav className="max-w-7xl mx-auto px-4 sm:px-6 h-16 sm:h-20 flex items-center justify-between gap-3">
 
+          {/* ── Brand ── */}
+          <Link to="/" className="flex items-center gap-2 sm:gap-3 min-w-0 flex-shrink">
+            <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow-lg shadow-indigo-600/30 flex-shrink-0">
+              <TrendingUp size={18} className="text-white sm:hidden" />
+              <TrendingUp size={22} className="text-white hidden sm:block" />
+            </div>
+            <span className="font-extrabold text-slate-900 text-lg sm:text-2xl tracking-tight truncate">SaccoFlow</span>
+          </Link>
+
+          {/* ── Centre nav (md+) ── */}
           <div className="hidden md:flex items-center gap-1">
             {['Features', 'How it works', 'Pricing', 'About'].map((item) => (
               <a
                 key={item}
                 href={`#${item.toLowerCase().replace(/\s+/g, '-')}`}
-                className="px-4 py-2 text-base text-slate-600 hover:text-slate-900 hover:bg-slate-50 rounded-lg transition-colors font-medium"
+                className="px-3 py-2 text-sm lg:text-base text-slate-600 hover:text-slate-900 hover:bg-slate-50 rounded-lg transition-colors font-medium"
               >
                 {item}
               </a>
             ))}
           </div>
 
-          <div className="flex items-center gap-3">
-            <Link to="/login" className="text-base font-semibold text-slate-700 hover:text-slate-900 px-3 py-2 transition-colors hidden sm:block">
+          {/* ── Right side CTAs ── */}
+          <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+            <Link
+              to="/login"
+              className="text-base font-semibold text-slate-700 hover:text-slate-900 px-3 py-2 transition-colors hidden sm:block"
+            >
               Sign in
             </Link>
-            <Link to="/login" className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-base font-semibold rounded-xl px-5 py-3 shadow-lg shadow-indigo-600/30 transition-all duration-150 active:scale-95">
-              Get Started <ArrowRight size={16} />
+
+            {/* Compact CTA on mobile (just "Start"), full label on sm+ */}
+            <Link
+              to="/login"
+              className="inline-flex items-center gap-1.5 sm:gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm sm:text-base font-semibold rounded-xl px-3.5 sm:px-5 py-2 sm:py-3 shadow-lg shadow-indigo-600/30 transition-all duration-150 active:scale-95 whitespace-nowrap"
+            >
+              <span className="sm:hidden">Start</span>
+              <span className="hidden sm:inline">Get Started</span>
+              <ArrowRight size={14} className="sm:hidden" />
+              <ArrowRight size={16} className="hidden sm:inline-block" />
             </Link>
           </div>
         </nav>
