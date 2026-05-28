@@ -302,3 +302,41 @@ npm run dev
 ```
 
 Happy coding! 🚀
+
+---
+
+## ☁️ Deploying to Vercel
+
+This project is configured for one-click Vercel deployment. The
+`vercel.json` already sets up SPA rewrites (so React Router works) and
+long-cache headers for the built assets.
+
+### From GitHub → Vercel (recommended)
+
+1. **Push to GitHub** — see `DEPLOY.md` for the exact commands.
+2. Go to <https://vercel.com/new>, click **Import Git Repository**, and
+   pick your `sacco-project` repo.
+3. Vercel auto-detects Vite. Leave the build settings alone.
+4. **Add environment variables** (Settings → Environment Variables):
+   ```
+   VITE_SUPABASE_URL       = https://<your-ref>.supabase.co
+   VITE_SUPABASE_ANON_KEY  = sb_publishable_...
+   ```
+5. Click **Deploy**. Your dashboard will be live at
+   `https://<project>.vercel.app` in ~60 seconds.
+
+Every subsequent `git push` to `main` triggers an automatic redeploy.
+
+### Or via the Vercel CLI
+
+```bash
+npm i -g vercel
+vercel              # first deploy — pick the project, accept defaults
+vercel --prod       # promote to production
+```
+
+Don't forget to add the env vars with:
+```bash
+vercel env add VITE_SUPABASE_URL
+vercel env add VITE_SUPABASE_ANON_KEY
+```

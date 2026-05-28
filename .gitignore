@@ -29,3 +29,11 @@ dist-ssr
 # Build
 .next
 out
+
+# Tool-specific (don't push these to GitHub)
+.claude/
+.vercel/
+
+# Lockfiles for other package managers (we use npm)
+yarn.lock
+pnpm-lock.yaml

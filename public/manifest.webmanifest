@@ -1,0 +1,19 @@
+{
+  "name":              "SaccoFlow — SACCO Management",
+  "short_name":        "SaccoFlow",
+  "description":       "Manage members, loans, contributions and dividends from one dashboard.",
+  "start_url":         "/dashboard",
+  "scope":             "/",
+  "display":           "standalone",
+  "background_color":  "#0F172A",
+  "theme_color":       "#4F46E5",
+  "orientation":       "portrait-primary",
+  "icons": [
+    {
+      "src":     "/favicon.svg",
+      "sizes":   "any",
+      "type":    "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

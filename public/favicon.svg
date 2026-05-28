@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0"   stop-color="#6366F1" />
+      <stop offset="0.5" stop-color="#4F46E5" />
+      <stop offset="1"   stop-color="#7C3AED" />
+    </linearGradient>
+    <radialGradient id="glow" cx="64" cy="0" r="40" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.25" />
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+
+  <!-- Rounded-square background with brand gradient -->
+  <rect width="64" height="64" rx="14" fill="url(#bg)" />
+  <rect width="64" height="64" rx="14" fill="url(#glow)" />
+
+  <!-- Trending-up zigzag -->
+  <polyline
+    points="16,42 26,32 32,38 44,26"
+    fill="none"
+    stroke="#FFFFFF"
+    stroke-width="4.5"
+    stroke-linecap="round"
+    stroke-linejoin="round" />
+
+  <!-- Arrowhead -->
+  <polygon points="40,26 48,26 48,34" fill="#FFFFFF" />
+
+  <!-- Trailing dot -->
+  <circle cx="16" cy="42" r="2.5" fill="#FFFFFF" fill-opacity="0.85" />
+</svg>
