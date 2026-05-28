@@ -282,6 +282,37 @@ const resolveSaccoId = async (): Promise<string> => {
   return cachedSaccoId
 }
 
+// One labeled row in the member-details modal, with optional copy button.
+function DetailRow({
+  label, value, copyable = false,
+}: { label: string; value: string; copyable?: boolean }) {
+  const [copied, setCopied] = useState(false)
+  const onCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(value)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch { /* older browsers */ }
+  }
+  return (
+    <div className="flex items-center justify-between gap-3 px-4 py-3">
+      <span className="text-xs text-slate-500 font-semibold uppercase tracking-wider">{label}</span>
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="text-sm font-semibold text-slate-900 truncate">{value}</span>
+        {copyable && value !== '—' && (
+          <button
+            onClick={onCopy}
+            title={`Copy ${label}`}
+            className="text-[10px] px-2 py-0.5 rounded-md bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 font-bold whitespace-nowrap"
+          >
+            {copied ? '✓ Copied' : 'Copy'}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function Dashboard() {
   const [reportOpen, setReportOpen]               = useState(false)
   const [activityFilter, setActivityFilter]       = useState<'all' | 'contribution' | 'loan' | 'member'>('all')
@@ -313,6 +344,8 @@ export default function Dashboard() {
     membership_no: string; created_at: string; avatar_color: string | null;
   }
   const [pendingMembers, setPendingMembers] = useState<PendingMember[]>([])
+  const [selectedMember, setSelectedMember] = useState<PendingMember | null>(null)
+  const [actionInFlight, setActionInFlight] = useState<'approve' | 'reject' | null>(null)
 
   const loadPendingMembers = async () => {
     const id = await resolveSaccoId()
@@ -332,18 +365,24 @@ export default function Dashboard() {
   }, [])
 
   const approveMember = async (m: PendingMember) => {
+    setActionInFlight('approve')
     const { error } = await registrationsApi.approve(m.id)
+    setActionInFlight(null)
     if (error) { showToast(`Approval failed: ${error.message}`, 'info'); return }
     showToast(`${m.first_name} ${m.last_name} approved`, 'success')
+    setSelectedMember(null)
     loadPendingMembers()
   }
 
   const rejectMember = async (m: PendingMember) => {
     const reason = window.prompt(`Reject ${m.first_name}'s registration. Reason?`, 'Failed KYC')
     if (!reason) return
+    setActionInFlight('reject')
     const { error } = await registrationsApi.reject(m.id, reason)
+    setActionInFlight(null)
     if (error) { showToast(`Reject failed: ${error.message}`, 'info'); return }
     showToast(`${m.first_name} ${m.last_name} rejected`, 'info')
+    setSelectedMember(null)
     loadPendingMembers()
   }
 
@@ -473,32 +512,99 @@ export default function Dashboard() {
           </div>
           <div className="divide-y divide-slate-50">
             {pendingMembers.map((m) => (
-              <div key={m.id} className="px-5 py-3.5 hover:bg-slate-50/60 transition-colors flex items-center gap-4">
+              <button
+                key={m.id}
+                onClick={() => setSelectedMember(m)}
+                className="w-full px-5 py-3.5 hover:bg-slate-50/60 transition-colors flex items-center gap-4 text-left"
+              >
                 <div className={`w-10 h-10 rounded-full ${m.avatar_color ?? 'bg-indigo-500'} text-white flex items-center justify-center text-xs font-bold flex-shrink-0`}>
                   {m.first_name[0]}{m.last_name[0]}
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-semibold text-slate-900">{m.first_name} {m.last_name}</p>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    <span className="font-mono">{m.membership_no}</span> · {m.phone}
-                    {m.national_id && ` · ID ${m.national_id}`}
-                  </p>
+                  <p className="text-xs text-slate-500 mt-0.5 font-mono">{m.membership_no}</p>
                 </div>
                 <p className="text-xs text-slate-400 hidden sm:block">{relativeTime(m.created_at)}</p>
+                <span className="text-xs text-indigo-600 font-bold flex items-center gap-1">
+                  Review <ChevronRight size={14} />
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Member details modal — admin sees full info + approve/reject ── */}
+      {selectedMember && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-in fade-in duration-150"
+          onClick={() => actionInFlight ? undefined : setSelectedMember(null)}
+        >
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" />
+          <div
+            className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden animate-in slide-in-from-bottom-4 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header with gradient */}
+            <div className="relative bg-gradient-to-br from-indigo-600 to-violet-600 px-6 pt-6 pb-16">
+              <button
+                onClick={() => setSelectedMember(null)}
+                disabled={!!actionInFlight}
+                className="absolute top-4 right-4 w-8 h-8 rounded-full bg-white/15 hover:bg-white/25 text-white flex items-center justify-center transition-colors disabled:opacity-50"
+              >
+                <X size={16} />
+              </button>
+              <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-amber-400/30 text-amber-100 font-bold tracking-wider uppercase border border-amber-300/40">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-300 animate-pulse" /> Pending review
+              </span>
+              <h2 className="text-2xl font-extrabold text-white mt-3 leading-tight">
+                {selectedMember.first_name} {selectedMember.last_name}
+              </h2>
+              <p className="text-indigo-100 font-mono text-sm mt-1">{selectedMember.membership_no}</p>
+            </div>
+
+            {/* Avatar overlapping the header */}
+            <div className={`absolute top-[88px] left-1/2 -translate-x-1/2 w-20 h-20 rounded-2xl ${selectedMember.avatar_color ?? 'bg-indigo-500'} ring-4 ring-white text-white flex items-center justify-center text-2xl font-extrabold shadow-lg`}>
+              {selectedMember.first_name[0]}{selectedMember.last_name[0]}
+            </div>
+
+            {/* Body */}
+            <div className="px-6 pt-14 pb-6 space-y-4">
+              <p className="text-center text-xs text-slate-400">
+                Submitted {relativeTime(selectedMember.created_at)}
+              </p>
+
+              {/* Detail rows */}
+              <div className="bg-slate-50 rounded-xl divide-y divide-slate-100">
+                <DetailRow label="Phone"        value={selectedMember.phone}                  copyable />
+                <DetailRow label="Email"        value={selectedMember.email ?? '—'} />
+                <DetailRow label="National ID"  value={selectedMember.national_id ?? '—'} copyable={!!selectedMember.national_id} />
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-2 pt-2">
                 <button
-                  onClick={() => rejectMember(m)}
-                  className="px-3 py-2 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 text-xs font-bold transition-colors"
+                  onClick={() => rejectMember(selectedMember)}
+                  disabled={!!actionInFlight}
+                  className="flex-1 px-4 py-3 rounded-xl bg-red-50 text-red-700 hover:bg-red-100 font-bold text-sm transition-colors disabled:opacity-50"
                 >
-                  Reject
+                  {actionInFlight === 'reject' ? 'Rejecting…' : 'Reject'}
                 </button>
                 <button
-                  onClick={() => approveMember(m)}
-                  className="px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 text-xs font-bold transition-colors shadow-sm flex items-center gap-1"
+                  onClick={() => approveMember(selectedMember)}
+                  disabled={!!actionInFlight}
+                  className="flex-1 px-4 py-3 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700 font-bold text-sm shadow-md flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
                 >
-                  <CheckCircle size={13} /> Approve
+                  {actionInFlight === 'approve' ? (
+                    'Approving…'
+                  ) : (
+                    <>
+                      <CheckCircle size={15} /> Approve
+                    </>
+                  )}
                 </button>
               </div>
-            ))}
+            </div>
           </div>
         </div>
       )}
