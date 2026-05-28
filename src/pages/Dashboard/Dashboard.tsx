@@ -269,7 +269,18 @@ function ReportModal({ open, onClose }: { open: boolean; onClose: () => void }) 
 
 // ─────────────────────────── DASHBOARD ───────────────────────────
 
-const UMOJA_SACCO_ID = '00000000-0000-0000-0000-000000000001'
+// Resolved at runtime from the saccos table by short_code so this works
+// regardless of which UUID Supabase assigned.
+import { supabase } from '@/lib/supabase'
+const FALLBACK_SACCO_ID = '00000000-0000-0000-0000-000000000001'
+let cachedSaccoId: string | null = null
+const resolveSaccoId = async (): Promise<string> => {
+  if (cachedSaccoId) return cachedSaccoId
+  const { data } = await supabase
+    .from('saccos').select('id').eq('short_code', 'UMOJA').limit(1).single()
+  cachedSaccoId = data?.id ?? FALLBACK_SACCO_ID
+  return cachedSaccoId
+}
 
 export default function Dashboard() {
   const [reportOpen, setReportOpen]               = useState(false)
@@ -287,7 +298,8 @@ export default function Dashboard() {
   useEffect(() => {
     let cancelled = false
     setStatsLoading(true)
-    dashboardApi.stats(UMOJA_SACCO_ID)
+    resolveSaccoId()
+      .then((id) => dashboardApi.stats(id))
       .then((s) => { if (!cancelled) { setLiveStats(s); setStatsError(null) } })
       .catch((e) => { if (!cancelled) setStatsError(e.message ?? 'Could not load stats') })
       .finally(() => { if (!cancelled) setStatsLoading(false) })
@@ -303,14 +315,18 @@ export default function Dashboard() {
   const [pendingMembers, setPendingMembers] = useState<PendingMember[]>([])
 
   const loadPendingMembers = async () => {
-    const { data } = await registrationsApi.pending(UMOJA_SACCO_ID)
+    const id = await resolveSaccoId()
+    const { data } = await registrationsApi.pending(id)
     setPendingMembers((data ?? []) as any)
   }
 
   useEffect(() => {
-    loadPendingMembers()
-    // Subscribe so new sign-ups appear instantly
-    const unsub = registrationsApi.subscribePending(UMOJA_SACCO_ID, () => loadPendingMembers())
+    let unsub: (() => void) | undefined
+    ;(async () => {
+      const id = await resolveSaccoId()
+      await loadPendingMembers()
+      unsub = registrationsApi.subscribePending(id, () => loadPendingMembers())
+    })()
     return () => { unsub?.() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
