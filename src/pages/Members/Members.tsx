@@ -1,12 +1,35 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Users, UserPlus, Search, Filter, Download, MoreVertical,
-  Eye, Edit, Trash2, Mail, Phone, MapPin, Calendar,
-  CheckCircle, XCircle, AlertCircle, X, Upload, ChevronDown,
-  TrendingUp, UserCheck, UserX, Clock,
+  Eye, Edit, Trash2, Mail, X, Upload, ChevronDown,
+  UserCheck, UserX, AlertCircle, Pause, Play,
 } from 'lucide-react'
-import { demoMembers, DemoMember, MemberStatus } from '@/data/demoData'
+import { DemoMember, MemberStatus } from '@/data/demoData'
+import { supabase } from '@/lib/supabase'
+
+// ─── Avatar palette used when seeding a new member ──────────────
+const AVATAR_COLORS = ['bg-indigo-500', 'bg-violet-500', 'bg-emerald-500', 'bg-amber-500', 'bg-rose-500', 'bg-blue-500', 'bg-teal-500']
+const randAvatar = () => AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)]
+
+/** Map a row from the v_member_summary view to the existing UI shape. */
+function mapRow(r: any): DemoMember {
+  return {
+    id:                 r.id,
+    membershipNumber:   r.membership_no,
+    firstName:          r.first_name,
+    lastName:           r.last_name,
+    nationalId:         r.national_id ?? '',
+    email:              r.email ?? '',
+    phone:              r.phone ?? '',
+    address:            r.address ?? '',
+    status:             (r.status ?? 'ACTIVE') as MemberStatus,
+    dateJoined:         (r.joined_at ?? r.created_at ?? '').toString().slice(0, 10),
+    totalContributions: Number(r.total_savings ?? r.lifetime_contributions ?? 0),
+    activeLoans:        Number(r.active_loans ?? 0),
+    avatarColor:        r.avatar_color ?? randAvatar(),
+  }
+}
 
 // ─────────────────────── ADD MEMBER DRAWER ───────────────────────
 
@@ -181,16 +204,44 @@ function AddMemberDrawer({ open, onClose, onSave }: { open: boolean; onClose: ()
 
 export default function Members() {
   const navigate = useNavigate()
-  const [members, setMembers] = useState(demoMembers)
+  const [members, setMembers] = useState<DemoMember[]>([])
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<'ALL' | MemberStatus>('ALL')
   const [openMenu, setOpenMenu] = useState<string | null>(null)
-  const [toast, setToast] = useState<string | null>(null)
+  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'info' | 'danger' } | null>(null)
+  const [editingMember, setEditingMember] = useState<DemoMember | null>(null)
 
-  const showToast = (msg: string) => {
-    setToast(msg)
-    setTimeout(() => setToast(null), 2500)
+  // ─── Live load from Supabase ──────────────────────────────────
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      setLoading(true)
+      const { data, error } = await supabase
+        .from('v_member_summary')
+        .select('*')
+        .order('joined_at', { ascending: false })
+        .limit(500)
+      if (cancelled) return
+      if (error) { setLoadError(error.message); setMembers([]); setLoading(false); return }
+      setLoadError(null)
+      setMembers((data ?? []).map(mapRow))
+      setLoading(false)
+    }
+    load()
+    // Realtime: refresh on any change
+    const channel = supabase
+      .channel('members-rt')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'members' }, () => load())
+      .subscribe()
+    return () => { cancelled = true; supabase.removeChannel(channel) }
+  }, [])
+
+  const showToast = (msg: string, type: 'success' | 'info' | 'danger' = 'success') => {
+    setToast({ msg, type })
+    setTimeout(() => setToast(null), 2800)
   }
 
   const stats = useMemo(() => ({
@@ -220,15 +271,64 @@ export default function Members() {
   }, [members, query, statusFilter])
 
   const addMember = (m: DemoMember) => {
+    // The realtime subscription will refresh the list — but show it optimistically too
     setMembers((prev) => [m, ...prev])
     showToast(`${m.firstName} ${m.lastName} added successfully`)
   }
 
-  const deleteMember = (id: string) => {
-    const m = members.find((x) => x.id === id)
-    setMembers((prev) => prev.filter((x) => x.id !== id))
-    if (m) showToast(`${m.firstName} ${m.lastName} removed`)
+  /** Patch a member's status in Supabase. */
+  const changeStatus = async (m: DemoMember, newStatus: MemberStatus) => {
     setOpenMenu(null)
+    const prev = [...members]
+    // Optimistic update
+    setMembers((cur) => cur.map((x) => (x.id === m.id ? { ...x, status: newStatus } : x)))
+    const { error } = await supabase
+      .from('members').update({ status: newStatus }).eq('id', m.id)
+    if (error) {
+      setMembers(prev)
+      showToast(`Failed: ${error.message}`, 'danger')
+      return
+    }
+    const verb =
+      newStatus === 'ACTIVE'    ? 'activated' :
+      newStatus === 'INACTIVE'  ? 'deactivated' :
+      newStatus === 'SUSPENDED' ? 'suspended'   : 'updated'
+    showToast(`${m.firstName} ${m.lastName} ${verb}`, 'success')
+  }
+
+  /** Hard-delete a member after confirmation. */
+  const deleteMember = async (m: DemoMember) => {
+    setOpenMenu(null)
+    const confirmed = window.confirm(
+      `Permanently delete ${m.firstName} ${m.lastName}?\n\n` +
+      `This removes all their transactions and loans. Consider suspending instead.`,
+    )
+    if (!confirmed) return
+    const prev = [...members]
+    setMembers((cur) => cur.filter((x) => x.id !== m.id))
+    const { error } = await supabase.from('members').delete().eq('id', m.id)
+    if (error) {
+      setMembers(prev)
+      showToast(`Delete failed: ${error.message}`, 'danger')
+      return
+    }
+    showToast(`${m.firstName} ${m.lastName} deleted`, 'info')
+  }
+
+  /** Save the edit modal — partial update. */
+  const saveEdits = async (id: string, patch: Partial<DemoMember>) => {
+    const dbPatch: Record<string, any> = {}
+    if (patch.firstName !== undefined)   dbPatch.first_name  = patch.firstName
+    if (patch.lastName  !== undefined)   dbPatch.last_name   = patch.lastName
+    if (patch.phone     !== undefined)   dbPatch.phone       = patch.phone
+    if (patch.email     !== undefined)   dbPatch.email       = patch.email || null
+    if (patch.nationalId!== undefined)   dbPatch.national_id = patch.nationalId || null
+    if (patch.address   !== undefined)   dbPatch.address     = patch.address || null
+    const { error } = await supabase.from('members').update(dbPatch).eq('id', id)
+    if (error) { showToast(`Save failed: ${error.message}`, 'danger'); return false }
+    setMembers((cur) => cur.map((x) => (x.id === id ? { ...x, ...patch } : x)))
+    showToast('Changes saved', 'success')
+    return true
   }
 
   return (
@@ -237,10 +337,23 @@ export default function Members() {
       {/* Toast */}
       {toast && (
         <div className="fixed top-20 right-6 z-50 bg-white border border-slate-200 rounded-xl shadow-2xl px-4 py-3 flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center">
-            <CheckCircle size={16} />
+          <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+            toast.type === 'success' ? 'bg-emerald-100 text-emerald-600' :
+            toast.type === 'danger'  ? 'bg-red-100 text-red-600' :
+                                       'bg-indigo-100 text-indigo-600'
+          }`}>
+            {toast.type === 'danger' ? <AlertCircle size={16} /> :
+             toast.type === 'info'   ? <Pause size={16} /> :
+                                        <UserCheck size={16} />}
           </div>
-          <p className="text-sm font-semibold text-slate-800">{toast}</p>
+          <p className="text-sm font-semibold text-slate-800">{toast.msg}</p>
+        </div>
+      )}
+
+      {/* Live status banner */}
+      {loadError && (
+        <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+          ⚠️ {loadError}
         </div>
       )}
 
@@ -412,19 +525,58 @@ export default function Members() {
                           <MoreVertical size={16} />
                         </button>
                         {openMenu === m.id && (
-                          <div className="absolute right-5 top-full mt-1 w-44 bg-white rounded-xl shadow-2xl border border-slate-100 overflow-hidden z-20">
-                            <button onClick={() => { navigate(`/members/${m.id}`); setOpenMenu(null) }} className="w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-slate-50 text-left text-sm text-slate-700">
+                          <div className="absolute right-5 top-full mt-1 w-52 bg-white rounded-xl shadow-2xl border border-slate-100 overflow-hidden z-20">
+
+                            {/* View / Edit */}
+                            <button
+                              onClick={() => { navigate(`/members/${m.id}`); setOpenMenu(null) }}
+                              className="w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-slate-50 text-left text-sm text-slate-700"
+                            >
                               <Eye size={14} /> View profile
                             </button>
-                            <button onClick={() => setOpenMenu(null)} className="w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-slate-50 text-left text-sm text-slate-700">
-                              <Edit size={14} /> Edit
+                            <button
+                              onClick={() => { setEditingMember(m); setOpenMenu(null) }}
+                              className="w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-slate-50 text-left text-sm text-slate-700"
+                            >
+                              <Edit size={14} /> Edit details
                             </button>
-                            <button onClick={() => setOpenMenu(null)} className="w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-slate-50 text-left text-sm text-slate-700">
-                              <Mail size={14} /> Send message
-                            </button>
+
+                            {/* Status section */}
                             <div className="border-t border-slate-100" />
-                            <button onClick={() => deleteMember(m.id)} className="w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-red-50 text-left text-sm text-red-600">
-                              <Trash2 size={14} /> Remove
+                            <p className="px-3 pt-2 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">Status</p>
+
+                            {m.status !== 'ACTIVE' && (
+                              <button
+                                onClick={() => changeStatus(m, 'ACTIVE')}
+                                className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-emerald-50 text-left text-sm text-emerald-700"
+                              >
+                                <Play size={14} /> Activate
+                              </button>
+                            )}
+                            {m.status !== 'INACTIVE' && (
+                              <button
+                                onClick={() => changeStatus(m, 'INACTIVE')}
+                                className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-slate-50 text-left text-sm text-slate-700"
+                              >
+                                <Pause size={14} /> Deactivate
+                              </button>
+                            )}
+                            {m.status !== 'SUSPENDED' && (
+                              <button
+                                onClick={() => changeStatus(m, 'SUSPENDED')}
+                                className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-amber-50 text-left text-sm text-amber-700"
+                              >
+                                <AlertCircle size={14} /> Suspend
+                              </button>
+                            )}
+
+                            {/* Delete */}
+                            <div className="border-t border-slate-100" />
+                            <button
+                              onClick={() => deleteMember(m)}
+                              className="w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-red-50 text-left text-sm text-red-600"
+                            >
+                              <Trash2 size={14} /> Delete permanently
                             </button>
                           </div>
                         )}
@@ -453,6 +605,109 @@ export default function Members() {
       </div>
 
       <AddMemberDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} onSave={addMember} />
+
+      {/* Edit modal */}
+      {editingMember && (
+        <EditMemberModal
+          member={editingMember}
+          onClose={() => setEditingMember(null)}
+          onSave={async (patch) => {
+            const ok = await saveEdits(editingMember.id, patch)
+            if (ok) setEditingMember(null)
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+// ─────────────────────── EDIT MEMBER MODAL ───────────────────────
+function EditMemberModal({
+  member, onClose, onSave,
+}: {
+  member: DemoMember
+  onClose: () => void
+  onSave: (patch: Partial<DemoMember>) => Promise<void>
+}) {
+  const [form, setForm] = useState({
+    firstName:  member.firstName,
+    lastName:   member.lastName,
+    phone:      member.phone,
+    email:      member.email,
+    nationalId: member.nationalId,
+    address:    member.address,
+  })
+  const [saving, setSaving] = useState(false)
+
+  const submit = async () => {
+    setSaving(true)
+    try { await onSave(form) }
+    finally { setSaving(false) }
+  }
+
+  const field = (key: keyof typeof form, label: string, type = 'text', placeholder = '') => (
+    <div>
+      <label className="block text-xs font-bold text-slate-700 mb-1.5">{label}</label>
+      <input
+        type={type}
+        className="input"
+        placeholder={placeholder}
+        value={form[key]}
+        onChange={(e) => setForm({ ...form, [key]: e.target.value })}
+      />
+    </div>
+  )
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl overflow-hidden">
+        {/* Header */}
+        <div className="relative bg-gradient-to-br from-indigo-600 to-violet-600 px-6 py-5">
+          <button
+            onClick={onClose}
+            className="absolute top-4 right-4 w-8 h-8 rounded-full bg-white/15 hover:bg-white/25 text-white flex items-center justify-center transition-colors"
+          >
+            <X size={16} />
+          </button>
+          <p className="text-[11px] font-bold uppercase tracking-wider text-indigo-100 mb-1">
+            Edit member · {member.membershipNumber}
+          </p>
+          <h2 className="text-xl font-extrabold text-white">
+            {member.firstName} {member.lastName}
+          </h2>
+        </div>
+
+        {/* Body */}
+        <div className="px-6 py-5 space-y-3 max-h-[60vh] overflow-y-auto">
+          <div className="grid grid-cols-2 gap-3">
+            {field('firstName', 'First name')}
+            {field('lastName',  'Last name')}
+          </div>
+          {field('phone',      'Phone',          'tel',   '+254 712 345 678')}
+          {field('email',      'Email',          'email', 'name@email.com')}
+          {field('nationalId', 'National ID')}
+          {field('address',    'Address')}
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2">
+          <button
+            onClick={onClose}
+            disabled={saving}
+            className="px-4 py-2.5 rounded-lg text-sm font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={submit}
+            disabled={saving}
+            className="px-5 py-2.5 rounded-lg text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 shadow-md"
+          >
+            {saving ? 'Saving…' : 'Save changes'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
